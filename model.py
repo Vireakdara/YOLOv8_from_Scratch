@@ -75,15 +75,74 @@ class C2f(nn.Module):
         return out
 
 # sanity check
-# c2f=C2f(in_channels=64,out_channels=128,num_bottlenecks=2)
+c2f=C2f(in_channels=64,out_channels=128,num_bottlenecks=2)
 # print(f"{sum(p.numel() for p in c2f.parameters())/1e6} million parameters")
-# 0.18944 million parameters
 
-# dummy_input=torch.rand((1,64,244,244))
-# dummy_input=c2f(dummy_input)
+dummy_input=torch.rand((1,64,244,244))
+dummy_input=c2f(dummy_input)
 # print("Output shape: ", dummy_input.shape)
-# Output shape:  torch.Size([1, 128, 244, 244])
 
+# SPPF (spatial pyramid pooling fast): Conv + Maxpool2d + Conv
+# Process features at various scales and pool them into a fixed-size feature map.
+class SPPF(nn.Module):
+    """
+    Spatial Pyramid Pooling - Fast (SPPF)
+    
+    Args:
+        in_channels  (int):  Number of input channels
+        out_channels (int):  Number of output channels
+        pool_kernel  (int):  Kernel size for MaxPool2d (default 5)
+        
+    Typically, SPPF is implemented as:
+      1) A 1x1 convolution (reduce/increase channels),
+      2) Three sequential MaxPool2d (with stride=1 and padding such that output size stays the same),
+      3) Concat the original + each pooled feature map,
+      4) A final 1x1 convolution to fuse back into out_channels.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=5):
+        super().__init__()
+        hidden_channels = in_channels//2
+        # Initial 1×1 conv
+        self.conv1 = Conv(in_channels, hidden_channels, kernel_size=1, stride=1, padding=0)
+
+        # MaxPool2d with stride=1 and appropriate padding so size remains constant
+        self.max_pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2, dilation=1, ceil_mode=False)
+
+        # Final 1×1 conv after concatenation (4x channels from x + 3 pooled outputs)
+        # Example:
+        # Assuming:
+
+        # in_channels = 64
+        # After the 1x1 Conv, you get 32 channels.
+        # After pooling and concatenating:
+        # 1 original feature map with 32 channels.
+        # 3 pooled feature maps with 32 channels each.
+        self.conv2 = Conv(hidden_channels*4, out_channels, kernel_size=1, stride=1, padding=0)
+    
+    def forward(self, x):
+        # 1. Initial 1×1 conv
+        x = self.conv1(x)
+
+        # 2. Sequential pooling steps
+        y1 = self.max_pool(x)
+        y2 = self.max_pool(y1)
+        y3 = self.max_pool(y2)
+
+        # 3. Concat the original + each pooled output
+        concat = torch.cat([x,y1,y2,y3], dim=1) # channel dimension is dim=1
+
+        # 4. Final 1×1 conv
+        outputs = self.conv2(concat)
+
+        return outputs
+
+# Testing
+sppf=SPPF(in_channels=128,out_channels=512)
+print(f"{sum(p.numel() for p in sppf.parameters())/1e6} million parameters")
+# 0.140416 million parameters
+dummy_input=sppf(dummy_input)
+print("Output shape: ", dummy_input.shape)
+# Output shape:  torch.Size([1, 512, 244, 244])
 
 
 
