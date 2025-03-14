@@ -74,12 +74,12 @@ class C2f(nn.Module):
 
         return out
 
-# sanity check
-c2f=C2f(in_channels=64,out_channels=128,num_bottlenecks=2)
+# Testing
+# c2f=C2f(in_channels=64,out_channels=128,num_bottlenecks=2)
 # print(f"{sum(p.numel() for p in c2f.parameters())/1e6} million parameters")
 
-dummy_input=torch.rand((1,64,244,244))
-dummy_input=c2f(dummy_input)
+# dummy_input=torch.rand((1,64,244,244))
+# dummy_input=c2f(dummy_input)
 # print("Output shape: ", dummy_input.shape)
 
 # SPPF (spatial pyramid pooling fast): Conv + Maxpool2d + Conv
@@ -137,16 +137,68 @@ class SPPF(nn.Module):
         return outputs
 
 # Testing
-sppf=SPPF(in_channels=128,out_channels=512)
-print(f"{sum(p.numel() for p in sppf.parameters())/1e6} million parameters")
+# sppf=SPPF(in_channels=128,out_channels=512)
+# print(f"{sum(p.numel() for p in sppf.parameters())/1e6} million parameters")
 # 0.140416 million parameters
-dummy_input=sppf(dummy_input)
-print("Output shape: ", dummy_input.shape)
+# dummy_input=sppf(dummy_input)
+# print("Output shape: ", dummy_input.shape)
 # Output shape:  torch.Size([1, 512, 244, 244])
 
 
+### ======= ======== ======= ###
+### ======= BackBone ======= ###
+### ======= ======== ======= ###
+
+# backbone = darknet53
+
+# return d,w,r based on version
+def yolo_params(version):
+    if version=='n':
+        return 1/3,1/4,2.0
+    elif version=='s':
+        return 1/3,1/2,2.0
+    elif version=='m':
+        return 2/3,3/4,1.5
+    elif version=='l':
+        return 1.0,1.0,1.0
+    elif version=='x':
+        return 1.0,1.25,1.0
 
 
+class Backbone(nn.Module):
+    def __init__(self, in_channels=3, shortcut = True):
+        super().__init__()
+        d,w,r = yolo_params(version)
 
+        # conv layers
+        self.con_0 = Conv(in_channels, int(64*w), kernel_size=3, stride=2, padding=1)
+        self.con_1 = Conv(int(64*w), int(128*w), kernel_size=3, stride=2, padding=1)
+        self.con_3 = Conv(int(128*w), int(256*w), kernel_size=3, stride=2, padding=1)
+        self.con_5 = Conv(int(256*w), int(512*w), kernel_size=3, stride=2, padding=1)
+        self.con_7 = Conv(int(512*w), int(512*w*r), kernel_size=3, stride=2, padding=1)
+
+        # c2f layers
+        self.c2f_2 = C2f(int(128*w), int(128*w), num_bottlenecks=int(3*d), shortcut=True)
+        self.c2f_4 = C2f(int(256*w), int(256*w), num_bottlenecks=int(6*d), shortcut=True)
+        self.c2f_6 = C2f(int(512*w), int(512*w), num_bottlenecks=int(6*d), shortcut=True)
+        self.c2f_8 = C2f(int(512*w*r), int(512*w*r), num_bottlenecks=int(3*d), shortcut=True)
+
+        #sppf
+        self.sppf = SPPF(int(512*w*r),int(512*w*r))
+
+    def forward(self, x):
+        x = self.conv_0(x)
+        x = self.conv_1(x)
+
+        x = self.c2f_2(x)
+
+        x = self.conv_3(x)
+
+        
+
+        
+
+
+        return x
 
 
