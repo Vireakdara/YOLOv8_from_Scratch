@@ -241,3 +241,17 @@ class Upsample(nn.Module):
     def forward(self, x):
         return nn.function.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
 
+class Neck(nn.Moduel):
+    def __init__(self, version):
+        super().__init__()
+        d,w,r = yolo_params(version)
+
+        self.up=Upsample() # No trainable parameters
+        self.c2f_1=C2f(in_channels=int(512*w*(1+r)), out_channels=int(512*w),num_bottlenecks=int(3*d),shortcut=False)
+        self.c2f_2=C2f(in_channels=int(768*w), out_channels=int(256*w),num_bottlenecks=int(3*d),shortcut=False)
+        self.c2f_3=C2f(in_channels=int(768*w), out_channels=int(512*w),num_bottlenecks=int(3*d),shortcut=False)
+        self.c2f_4=C2f(in_channels=int(512*w*(1+r)), out_channels=int(512*w*r),num_bottlenecks=int(3*d),shortcut=False)
+
+        self.cv_1=Conv(in_channels=int(256*w),out_channels=int(256*w),kernel_size=3,stride=2, padding=1)
+        self.cv_2=Conv(in_channels=int(512*w),out_channels=int(512*w),kernel_size=3,stride=2, padding=1)
+
