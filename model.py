@@ -209,3 +209,7 @@ class Backbone(nn.Module):
 print("----Nano model -----")
 backbone_n=Backbone(version='n')
 print(f"{sum(p.numel() for p in backbone_n.parameters())/1e6} million parameters")
+
+print("----Small model -----")
+backbone_s=Backbone(version='s')
+print(f"{sum(p.numel() for p in backbone_s.parameters())/1e6} million parameters")
