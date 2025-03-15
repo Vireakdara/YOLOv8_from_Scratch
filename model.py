@@ -166,16 +166,16 @@ def yolo_params(version):
 
 
 class Backbone(nn.Module):
-    def __init__(self, in_channels=3, shortcut = True):
+    def __init__(self, version, in_channels=3, shortcut = True):
         super().__init__()
         d,w,r = yolo_params(version)
 
         # conv layers
-        self.con_0 = Conv(in_channels, int(64*w), kernel_size=3, stride=2, padding=1)
-        self.con_1 = Conv(int(64*w), int(128*w), kernel_size=3, stride=2, padding=1)
-        self.con_3 = Conv(int(128*w), int(256*w), kernel_size=3, stride=2, padding=1)
-        self.con_5 = Conv(int(256*w), int(512*w), kernel_size=3, stride=2, padding=1)
-        self.con_7 = Conv(int(512*w), int(512*w*r), kernel_size=3, stride=2, padding=1)
+        self.conv_0 = Conv(in_channels, int(64*w), kernel_size=3, stride=2, padding=1)
+        self.conv_1 = Conv(int(64*w), int(128*w), kernel_size=3, stride=2, padding=1)
+        self.conv_3 = Conv(int(128*w), int(256*w), kernel_size=3, stride=2, padding=1)
+        self.conv_5 = Conv(int(256*w), int(512*w), kernel_size=3, stride=2, padding=1)
+        self.conv_7 = Conv(int(512*w), int(512*w*r), kernel_size=3, stride=2, padding=1)
 
         # c2f layers
         self.c2f_2 = C2f(int(128*w), int(128*w), num_bottlenecks=int(3*d), shortcut=True)
@@ -189,22 +189,16 @@ class Backbone(nn.Module):
     def forward(self,x):
         x=self.conv_0(x)
         x=self.conv_1(x)
-
         x=self.c2f_2(x)
-
         x=self.conv_3(x)
-
-        out1=self.c2f_4(x) # keep for output
-
+        out1 = self.c2f_4(x) # Keep it for output
         x=self.conv_5(out1)
-
-        out2=self.c2f_6(x) # keep for output
-
+        out2 = self.c2f_6(x) # Keep it for output
         x=self.conv_7(out2)
-        x=self.c2f_8(x)
-        out3=self.sppf(x)
+        x=self.c2f_8(x) 
+        out3 = self.sppf(x) # Keep it for output
 
-        return out1,out2,out3
+        return out1, out2, out3
 
 print("----Nano model -----")
 backbone_n=Backbone(version='n')
@@ -213,3 +207,26 @@ print(f"{sum(p.numel() for p in backbone_n.parameters())/1e6} million parameters
 print("----Small model -----")
 backbone_s=Backbone(version='s')
 print(f"{sum(p.numel() for p in backbone_s.parameters())/1e6} million parameters")
+
+# Testing
+
+x=torch.rand((1,3,640,640))
+out1,out2,out3=backbone_n(x)
+print(out1.shape)
+print(out2.shape)
+print(out3.shape)
+
+# ----Nano model -----
+# 1.272656 million parameters
+# ----Small model -----
+# 5.079712 million parameters
+# torch.Size([1, 64, 80, 80])
+# torch.Size([1, 128, 40, 40])
+# torch.Size([1, 256, 20, 20])
+
+
+### ======= ======== ======= ###
+### =======   Neck   ======= ###
+### ======= ======== ======= ###
+
+
