@@ -210,11 +210,11 @@ print(f"{sum(p.numel() for p in backbone_s.parameters())/1e6} million parameters
 
 # Testing
 
-x=torch.rand((1,3,640,640))
-out1,out2,out3=backbone_n(x)
-print(out1.shape)
-print(out2.shape)
-print(out3.shape)
+# x=torch.rand((1,3,640,640))
+# out1,out2,out3=backbone_n(x)
+# print(out1.shape)
+# print(out2.shape)
+# print(out3.shape)
 
 # ----Nano model -----
 # 1.272656 million parameters
@@ -234,14 +234,14 @@ print(out3.shape)
 
 class Upsample(nn.Module):
     def __init__(self, scale_factor = 2 , mode = 'nearest'):
-        super().__intit()
+        super().__init__()
         self.scale_factor = scale_factor
         self.mode = mode
     
     def forward(self, x):
-        return nn.function.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
+        return nn.functional.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
 
-class Neck(nn.Moduel):
+class Neck(nn.Module):
     def __init__(self, version):
         super().__init__()
         d,w,r = yolo_params(version)
@@ -278,3 +278,59 @@ class Neck(nn.Moduel):
         out_3 = self.c2f_4(x)
 
         return out_1,out_2,out_3
+
+# Testing
+# neck=Neck(version='n')
+# print(f"{sum(p.numel() for p in neck.parameters())/1e6} million parameters")
+
+# x=torch.rand((1,3,640,640))
+# out1,out2,out3=Backbone(version='n')(x)
+# out_1,out_2,out_3=neck(out1,out2,out3)
+# print(out_1.shape)
+# print(out_2.shape)
+# print(out_3.shape)
+
+### ======= ======== ======= ###
+### =======   Head   ======= ###
+### ======= ======== ======= ###
+
+# Consist of 3 modules: (1) bbox coordinates, (2) classification scores, (3) distribution focal loss (DFL).
+
+# DFL considers the predicted bbox coordinates as a 
+# probability distribution. At inference time, it samples from the distribution to get refined coordinates 
+
+# DFL
+class DFL(nn.Module):
+    def __init__(self,ch=16):
+        super().__init__()
+        
+        self.ch=ch
+        
+        self.conv=nn.Conv2d(in_channels=ch,out_channels=1,kernel_size=1,bias=False).requires_grad_(False)
+        
+        # initialize conv with [0,...,ch-1]
+        x=torch.arange(ch,dtype=torch.float).view(1,ch,1,1)
+        self.conv.weight.data[:]=torch.nn.Parameter(x) # DFL only has ch parameters
+
+    def forward(self,x):
+        # x must have num_channels = 4*ch: x=[bs,4*ch,c]
+        b,c,a=x.shape                           # c=4*ch
+        x=x.view(b,4,self.ch,a).transpose(1,2)  # [bs,ch,4,a]
+
+        # take softmax on channel dimension to get distribution probabilities
+        x=x.softmax(1)                          # [b,ch,4,a]
+        x=self.conv(x)                          # [b,1,4,a]
+        return x.view(b,4,a)                    # [b,4,a]
+
+# Testing
+# dummy_input=torch.rand((1,64,128))
+# dfl=DFL()
+# print(f"{sum(p.numel() for p in dfl.parameters())} parameters")
+
+# dummy_output=dfl(dummy_input)
+# print(dummy_output.shape)
+
+# print(dfl)
+
+
+
