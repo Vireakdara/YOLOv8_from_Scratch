@@ -280,15 +280,15 @@ class Neck(nn.Module):
         return out_1,out_2,out_3
 
 # Testing
-# neck=Neck(version='n')
-# print(f"{sum(p.numel() for p in neck.parameters())/1e6} million parameters")
+neck=Neck(version='n')
+print(f"{sum(p.numel() for p in neck.parameters())/1e6} million parameters")
 
-# x=torch.rand((1,3,640,640))
-# out1,out2,out3=Backbone(version='n')(x)
-# out_1,out_2,out_3=neck(out1,out2,out3)
-# print(out_1.shape)
-# print(out_2.shape)
-# print(out_3.shape)
+x=torch.rand((1,3,640,640))
+out1,out2,out3=Backbone(version='n')(x)
+out_1,out_2,out_3=neck(out1,out2,out3)
+print(out_1.shape)
+print(out_2.shape)
+print(out_3.shape)
 
 ### ======= ======== ======= ###
 ### =======   Head   ======= ###
@@ -332,5 +332,113 @@ class DFL(nn.Module):
 
 # print(dfl)
 
+class Head(nn.Module):
+    def __init__(self,version,ch=16,num_classes=80):
+
+        super().__init__()
+        self.ch=ch                          # dfl channels
+        self.coordinates=self.ch*4          # number of bounding box coordinates 
+        self.nc=num_classes                 # 80 for COCO
+        self.no=self.coordinates+self.nc    # number of outputs per anchor box
+
+        self.stride=torch.zeros(3)          # strides computed during build
+        
+        d,w,r=yolo_params(version=version)
+        
+        # for bounding boxes
+        self.box=nn.ModuleList([
+            nn.Sequential(Conv(int(256*w),self.coordinates,kernel_size=3,stride=1,padding=1),
+                          Conv(self.coordinates,self.coordinates,kernel_size=3,stride=1,padding=1),
+                          nn.Conv2d(self.coordinates,self.coordinates,kernel_size=1,stride=1)),
+
+            nn.Sequential(Conv(int(512*w),self.coordinates,kernel_size=3,stride=1,padding=1),
+                          Conv(self.coordinates,self.coordinates,kernel_size=3,stride=1,padding=1),
+                          nn.Conv2d(self.coordinates,self.coordinates,kernel_size=1,stride=1)),
+
+            nn.Sequential(Conv(int(512*w*r),self.coordinates,kernel_size=3,stride=1,padding=1),
+                          Conv(self.coordinates,self.coordinates,kernel_size=3,stride=1,padding=1),
+                          nn.Conv2d(self.coordinates,self.coordinates,kernel_size=1,stride=1))
+        ])
+
+        # for classification
+        self.cls=nn.ModuleList([
+            nn.Sequential(Conv(int(256*w),self.nc,kernel_size=3,stride=1,padding=1),
+                          Conv(self.nc,self.nc,kernel_size=3,stride=1,padding=1),
+                          nn.Conv2d(self.nc,self.nc,kernel_size=1,stride=1)),
+
+            nn.Sequential(Conv(int(512*w),self.nc,kernel_size=3,stride=1,padding=1),
+                          Conv(self.nc,self.nc,kernel_size=3,stride=1,padding=1),
+                          nn.Conv2d(self.nc,self.nc,kernel_size=1,stride=1)),
+
+            nn.Sequential(Conv(int(512*w*r),self.nc,kernel_size=3,stride=1,padding=1),
+                          Conv(self.nc,self.nc,kernel_size=3,stride=1,padding=1),
+                          nn.Conv2d(self.nc,self.nc,kernel_size=1,stride=1))
+        ])
+
+        # dfl
+        self.dfl=DFL()
+
+    def forward(self,x):
+        # x = output of Neck = list of 3 tensors with different resolution and different channel dim
+        #     x[0]=[bs, ch0, w0, h0], x[1]=[bs, ch1, w1, h1], x[2]=[bs,ch2, w2, h2] 
+
+        for i in range(len(self.box)):       # detection head i
+            box=self.box[i](x[i])            # [bs,num_coordinates,w,h]
+            cls=self.cls[i](x[i])            # [bs,num_classes,w,h]
+            x[i]=torch.cat((box,cls),dim=1)  # [bs,num_coordinates+num_classes,w,h]
+
+        # in training, no dfl output
+        if self.training:
+            return x                         # [3,bs,num_coordinates+num_classes,w,h]
+        
+        # in inference time, dfl produces refined bounding box coordinates
+        anchors, strides = (i.transpose(0, 1) for i in self.make_anchors(x, self.stride))
+
+        # concatenate predictions from all detection layers
+        x = torch.cat([i.view(x[0].shape[0], self.no, -1) for i in x], dim=2) #[bs, 4*self.ch + self.nc, sum_i(h[i]w[i])]
+        
+        # split out predictions for box and cls
+        #           box=[bs,4×self.ch,sum_i(h[i]w[i])]
+        #           cls=[bs,self.nc,sum_i(h[i]w[i])]
+        box, cls = x.split(split_size=(4 * self.ch, self.nc), dim=1)
 
 
+        a, b = self.dfl(box).chunk(2, 1)  # a=b=[bs,2×self.ch,sum_i(h[i]w[i])]
+        a = anchors.unsqueeze(0) - a
+        b = anchors.unsqueeze(0) + b
+        box = torch.cat(tensors=((a + b) / 2, b - a), dim=1)
+        
+        return torch.cat(tensors=(box * strides, cls.sigmoid()), dim=1)
+
+
+    def make_anchors(self, x, strides, offset=0.5):
+        # x= list of feature maps: x=[x[0],...,x[N-1]], in our case N= num_detection_heads=3
+        #                          each having shape [bs,ch,w,h]
+        #    each feature map x[i] gives output[i] = w*h anchor coordinates + w*h stride values
+        
+        # strides = list of stride values indicating how much 
+        #           the spatial resolution of the feature map is reduced compared to the original image
+
+        assert x is not None
+        anchor_tensor, stride_tensor = [], []
+        dtype, device = x[0].dtype, x[0].device
+        for i, stride in enumerate(strides):
+            _, _, h, w = x[i].shape
+            sx = torch.arange(end=w, device=device, dtype=dtype) + offset  # x coordinates of anchor centers
+            sy = torch.arange(end=h, device=device, dtype=dtype) + offset  # y coordinates of anchor centers
+            sy, sx = torch.meshgrid(sy, sx)                                # all anchor centers 
+            anchor_tensor.append(torch.stack((sx, sy), -1).view(-1, 2))
+            stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
+        return torch.cat(anchor_tensor), torch.cat(stride_tensor)
+
+
+detect=Head(version='n')
+print(f"{sum(p.numel() for p in detect.parameters())/1e6} million parameters")
+
+# out_1,out_2,out_3 are output of the neck
+output=detect([out_1,out_2,out_3])
+print(output[0].shape)
+print(output[1].shape)
+print(output[2].shape)
+
+print(detect)
