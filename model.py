@@ -186,19 +186,22 @@ class Backbone(nn.Module):
         #sppf
         self.sppf = SPPF(int(512*w*r),int(512*w*r))
 
-    def forward(self, x):
-        x = self.conv_0(x)
-        x = self.conv_1(x)
+    def forward(self,x):
+        x=self.conv_0(x)
+        x=self.conv_1(x)
 
-        x = self.c2f_2(x)
+        x=self.c2f_2(x)
 
-        x = self.conv_3(x)
+        x=self.conv_3(x)
 
-        
+        out1=self.c2f_4(x) # keep for output
 
-        
+        x=self.conv_5(out1)
 
+        out2=self.c2f_6(x) # keep for output
 
-        return x
+        x=self.conv_7(out2)
+        x=self.c2f_8(x)
+        out3=self.sppf(x)
 
-
+        return out1,out2,out3
