@@ -260,7 +260,7 @@ class Neck(nn.Moduel):
         x = self.up(x)
         x = torch.cat([x, x_res_2], dim=1)
 
-        res_2 = self.c2f_1(x)   # fro residual connection
+        res_2 = self.c2f_1(x)   # for residual connection
 
         x = self.up(res_2)
         x = torch.cat([x, x_res_1], dim=1)
