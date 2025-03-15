@@ -205,3 +205,7 @@ class Backbone(nn.Module):
         out3=self.sppf(x)
 
         return out1,out2,out3
+
+print("----Nano model -----")
+backbone_n=Backbone(version='n')
+print(f"{sum(p.numel() for p in backbone_n.parameters())/1e6} million parameters")
