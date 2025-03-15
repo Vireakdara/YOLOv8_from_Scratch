@@ -229,4 +229,15 @@ print(out3.shape)
 ### =======   Neck   ======= ###
 ### ======= ======== ======= ###
 
+# upsample = nearest-neighbor interpolation with scale_factor = 2
+#            doesn't have trainable parameters
+
+class Upsample(nn.Module):
+    def __init__(self, scale_factor = 2 , mode = 'nearest'):
+        super().__intit()
+        self.scale_factor = scale_factor
+        self.mode = mode
+    
+    def forward(self, x):
+        return nn.function.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
 
